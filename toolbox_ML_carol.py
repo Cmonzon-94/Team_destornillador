@@ -1,4 +1,4 @@
-#Funcion: get_features_cat_regression
+
 #Carga de paquetes y módulos necesarios
 import pandas as pd
 import numpy as np
@@ -7,72 +7,69 @@ from scipy.stats import f_oneway, spearmanr
 
 #1. Funcion: get_features_cat_regression
 
-def get_features_cat_regression(df, target_col, pvalue=0.05):
+def get_features_cat_regression(df, target_col, pvalue):
+
     """
-    Función que recibe las columnas categóricas en un DataFrame cuya relación estadística con la columna objetivo
-    ('target_col') es significativa, basándose en el test estadístico apropiado. (ANOVA, Spearman)
+    Identifica columnas categóricas en un DataFrame cuya relación estadística con la columna objetivo es significativa.
+    Aplica ANOVA si la columna objetivo es continua y correlación de Spearman si es discreta.
 
     Argumentos:
-    df: DataFrame de entrada.
-    target_col: Nombre de la columna objetivo (debe ser numérica(str)).
-    pvalue: nivel para la significancia estadística (por defecto su valor es 0.05).
+    - df (pd.DataFrame): DataFrame de entrada.
+    - target_col (str): Nombre de la columna objetivo (debe ser numérica).
+    - pvalue (float): Nivel de significancia estadística.
 
     Retorna:
-    list: lista con las columnas categóricas del dataframe cuyo test de relación con la columna designada por 'target_col'
-    tenga una relación significativa con la columna objetivo, o None si las entradas son inválidas.
-
+    - dict: Diccionario con las columnas categóricas significativas y sus respectivos p-valores.
     """
-    # Comprobaciones necesarias:
-    #Validación de los argumentos
-    # 1. ¿Carga del df correcto?
-    if not isinstance(df, pd.DataFrame):
-        print("Error: La entrada no es un DataFrame de Pandas, por favor revise el archivo.")
-        return None
-    # 2. Columnas: ¿La valiable es numérica?
-    if not pd.api.types.is_numeric_dtype(df[target_col]):
-        print(f"Error: La columna objetivo '{target_col}' no es numérica, por favor, revise los datos.")
-        return None
 
-    #Identificar columnas categóricas en el DataFrame, sino devuelve lista vacía
-    cat_columns = [col for col in df.columns if col != target_col and pd.api.types.is_categorical_dtype(df[col])]
+    # Validaciones iniciales
+    #Comprobar DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError("La entrada no es un DataFrame válido.")
+    #Comprobar si existe la columna target y que es una variable numérica.
+    if target_col not in df.columns:
+        raise ValueError(f"La columna objetivo '{target_col}' no existe en el DataFrame.")
+    if not pd.api.types.is_numeric_dtype(df[target_col]):
+        raise ValueError(f"La columna objetivo '{target_col}' no es numérica.")
+    #Comprobar que el pvalue intruducido sea una valor entre 0 y 1
+    if not (0 < pvalue < 1):
+        raise ValueError("El valor de 'pvalue' debe estar entre 0 y 1.")
+
+    # Identificar columnas categóricas (cardinalidad <10), sino devuelve {} vacía.
+    cat_columns = [col for col in df.columns if col != target_col and (pd.api.types.is_categorical_dtype(df[col]) or df[col].nunique() < 10)]
     if not cat_columns:
         print("No se encontraron columnas categóricas en el DataFrame.")
-        return []
+        return {}
+    
+    # Identificar si target_col es continua o discreta
+    is_continuous = df[target_col].nunique() > 10
 
-    # Lista para almacenar las columnas categóricas significativas
-    significant_features = []
+    # Preparar el diccionario de columnas categóricas significativas
+    significant_features = {}
 
-    # Identificar si target_col es continua o discreta con alta cardinalidad
-    if df[target_col].nunique() > 10:  # Más de 10 valores únicos se considera alta cardinalidad/continua
-        is_continuous = True
-    else:
-        is_continuous = False
-
-    # Iterar sobre las columnas categóricas y aplicar el test adecuado
+    # Iterar sobre cada columna categórica
     for col in cat_columns:
-        # Comprobar que no haya valores nulos en la columna categórica y en target_col
-        if df[col].isnull().any() or df[target_col].isnull().any():
-            print(f"Aviso: La columna '{col}' contiene valores nulos.")
-            df = df.dropna(subset=[col, target_col])
-
-        # Si la columna objetivo es continua, usar ANOVA
+        # Filtrar filas con valores nulos
+        df_valid = df.dropna(subset=[col, target_col])
         if is_continuous:
-            groups = [df[df[col] == category][target_col] for category in df[col].unique()]
-            f_stat, p_val = f_oneway(*groups)
+            # ANOVA: Comparar medias entre grupos
+            groups = [df_valid[df_valid[col] == category][target_col] for category in df_valid[col].unique()]
+            if len(groups) > 1:  # Asegurarse de que haya al menos 2 grupos
+                f_stat, p_val = f_oneway(*groups)
+            else:
+                p_val = 1  # No es posible realizar ANOVA con un solo grupo
         else:
-            # Si la columna objetivo es discreta, usar correlación de Spearman
-            unique_categories = pd.get_dummies(df[col], drop_first=True)
-            correlations = []
+            # Spearman: Correlación para variables discretas
+            unique_categories = pd.get_dummies(df_valid[col], drop_first=True)
+            p_vals = []
             for category in unique_categories.columns:
-                spearman_corr, p_val = spearmanr(unique_categories[category], df[target_col])
-                correlations.append(p_val)
+                _, p_val = spearmanr(unique_categories[category], df_valid[target_col])
+                p_vals.append(p_val)
+            p_val = min(p_vals)  # Usar el p-value más bajo
 
-            # Tomar el mínimo p-value para decidir si la relación es significativa
-            p_val = min(correlations)
-
-        # Si el p-value es menor que el umbral, agregar la columna a la lista de significativas
+        # Si la relación es estadísticamente significativa, agregar al diccionario
         if p_val < pvalue:
-            significant_features.append(col)
+            significant_features[col] = p_val
 
     return significant_features
 
@@ -84,78 +81,88 @@ def plot_features_cat_regression(df, target_col="", columns=[], pvalue=0.05, wit
     con una columna objetivo ('target_col') es significativa y genera histogramas opcionales.
 
     Argumentos:
-    df: DataFrame de entrada.
-    target_col: Nombre de la columna objetivo, valor por defecto: "".
-    columns: Lista de columnas a analizar. Si está vacía, se analizan todas las columnas numéricas. Valor por defecto: [].
-    pvalue: nivel para la significancia estadística (por defecto su valor es 0.05).
-    with_individual_plot: Si es True, genera histogramas para las columnas significativas. Valor por defecto: False.
+    - df: DataFrame de entrada.
+    - target_col: Nombre de la columna objetivo, valor por defecto: "".
+    - columns: Lista de columnas a analizar. Si está vacía, se analizan todas las columnas numéricas. Valor por defecto: [].
+    - pvalue: nivel para la significancia estadística (por defecto su valor es 0.05).
+    - with_individual_plot: Si es True, genera histogramas para las columnas significativas. Valor por defecto: False.
 
     Retorna:
-    list: Lista de columnas significativas según el test estadístico.
+    - list: Lista de columnas significativas según el test estadístico.
     """
 
     # Validaciones de entrada
-    # 1. ¿Carga del df correcto?
+    #Comprueba que es un DataFrame válido
     if not isinstance(df, pd.DataFrame):
-        print("Error: La entrada no es un DataFrame de Pandas. Por favor, revise los datos.")
-        return None
-    # 2. ¿Es una columna numérica?
+        raise ValueError("La entrada no es un DataFrame válido.")
+    #Comprobar si existe la columna target y que es una variable numérica.
+    if target_col not in df.columns:
+        raise ValueError(f"La columna objetivo '{target_col}' no existe en el DataFrame.")
     if not pd.api.types.is_numeric_dtype(df[target_col]):
-        print(f"Error: La columna objetivo '{target_col}' no es numérica. Por favor, revise los datos.")
-        return None
-    #3. Formato correcto del argumento columna
-    if not isinstance(columns, list):
-        print("Error: El argumento 'columns' debe ser una lista de strings.")
-        return None
-    #4. Formato correcto de los elementos de la columna
-    if not all(isinstance(col, str) for col in columns):
-        print("Error: Todos los elementos de 'columns' deben ser strings.")
-        return None
-    #5. Formato del argumento "with_individual_plot"
+        raise ValueError(f"La columna objetivo '{target_col}' no es numérica.")
+    #Comprobar si el argumento columna es un strings
+    if not isinstance(columns, list) or not all(isinstance(col, str) for col in columns):
+        raise ValueError("El argumento 'columns' debe ser una lista de strings.")
+    #Comprobar si el argumento "with_individual_plot" es un booleano
     if not isinstance(with_individual_plot, bool):
-        print("Error: El argumento 'with_individual_plot' debe ser de tipo booleano.")
-        return None
+        raise ValueError("El argumento 'with_individual_plot' debe ser de tipo booleano.")
 
-    # Si la lista de columnas está vacía, seleccionar todas las columnas categóricas
+    # Seleccionar columnas categóricas y de baja cardinalidad si no se especifican
     if not columns:
-        columns = [col for col in df.columns if pd.api.types.is_categorical_dtype(df[col])]
+        columns = [col for col in df.columns if col != target_col and (pd.api.types.is_categorical_dtype(df[col]) or df[col].nunique() <= 10)]
 
-    # Almacenar las columnas categóricas significativas
-    significant_columns = []
+    # Filtrar filas con valores nulos una sola vez
+    initial_rows = len(df)
+    df = df.dropna(subset=[target_col] + columns)
+    rows_dropped = initial_rows - len(df)
+    if rows_dropped > 0:
+        print(f"Aviso: Se eliminaron {rows_dropped} filas debido a valores nulos en las columnas seleccionadas.")
+
+    # Diccionario para almacenar resultados significativos
+    significant_columns = {}
 
     # Iterar sobre las columnas especificadas
     for col in columns:
         if col not in df.columns:
             print(f"Aviso: La columna '{col}' no existe en el DataFrame. Se omitirá.")
             continue
-
-        if not pd.api.types.is_categorical_dtype(df[col]):
-            print(f"Aviso: La columna '{col}' no es categórica. Se omitirá.")
+        if not pd.api.types.is_categorical_dtype(df[col]) and df[col].nunique() > 10:
+            print(f"Aviso: La columna '{col}' no es categórica ni tiene baja cardinalidad. Se omitirá.")
             continue
-
-        # Comprobar valores nulos
-        if df[col].isnull().any() or df[target_col].isnull().any():
-            print(f"Aviso: La columna '{col}' contiene valores nulos. Se ignorarán estas filas.")
-            df = df.dropna(subset=[col, target_col])
 
         # Aplicar ANOVA para evaluar la relación entre la columna y target_col
         groups = [df[df[col] == category][target_col] for category in df[col].unique()]
-        f_stat, p_val = f_oneway(*groups)
+        if len(groups) > 1:  # Asegurarse de que haya al menos 2 grupos
+            f_stat, p_val = f_oneway(*groups)
+        else:
+            p_val = 1  # No es posible realizar ANOVA con un solo grupo
 
-        # Si el p-value es menor que el umbral, agregar la columna a la lista significativa
+        # Si la relación es significativa, agregar al diccionario
         if p_val < pvalue:
-            significant_columns.append(col)
+            significant_columns[col] = p_val
 
-            # Si se solicita, generar histogramas
-            if with_individual_plot:
-                plt.figure(figsize=(8, 6))
-                for category in df[col].unique():
-                    subset = df[df[col] == category][target_col]
-                    plt.hist(subset, bins=10, alpha=0.6, label=f"{col}={category}")
-                plt.title(f"Distribución de '{target_col}' para '{col}'")
-                plt.xlabel(target_col)
-                plt.ylabel("Frecuencia")
-                plt.legend()
-                plt.show()
+    # Generar gráficos si se solicita
+    if with_individual_plot and significant_columns:
+        num_plots = len(significant_columns)
+        cols = 2
+        rows = (num_plots + 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(12, 5 * rows))
+        axes = axes.flatten()
+
+        for i, (col, p_val) in enumerate(significant_columns.items()):
+            for category in df[col].unique():
+                subset = df[df[col] == category][target_col]
+                axes[i].hist(subset, bins=bins, alpha=0.6, label=f"{col}={category}")
+            axes[i].set_title(f"'{col}' vs '{target_col}' (p={p_val:.4f})")
+            axes[i].set_xlabel(target_col)
+            axes[i].set_ylabel("Frecuencia")
+            axes[i].legend()
+
+        # Eliminar ejes sobrantes si hay menos gráficos que subplots
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+        
+        plt.tight_layout()
+        plt.show()
 
     return significant_columns
