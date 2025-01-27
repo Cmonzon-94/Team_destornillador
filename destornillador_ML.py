@@ -2,9 +2,11 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import f_oneway, spearmanr
+from scipy.stats import f_oneway, spearmanr,pearsonr
+import seaborn as sns
 
-# Función describe_df
+
+#1. Función describe_df
 def describe_df(df):
     """
     Genera un resumen descriptivo de un DataFrame.
@@ -42,9 +44,65 @@ def tipifica_variables(df, umbral_categoria, umbral_continua):
     return pd.DataFrame(resultados)
 
 
-***
+#2. Función: get_features_num_regression
 
+def get_features_num_regression(dataframe, target_col, umbral_corr, pvalue=None):
+    """
+    Seleccionar columnas numéricas correlacionadas con la variable objetivo.
+    Parámetros:
+    - dataframe: DataFrame de entrada.
+    - target_col: Nombre de la columna objetivo.
+    - umbral_corr: Umbral mínimo de correlación en valor absoluto.
+    - pvalue: Valor p para pruebas de hipótesis (opcional).
 
+    Devuelve:
+    - Lista de columnas numéricas correlacionadas con la columna objetivo.
+    """
+
+    if target_col not in dataframe.columns or not np.issubdtype(dataframe[target_col].dtype, np.number):
+        print("La columna objetivo no es válida o no es numérica continua.")
+        return None
+
+    correlaciones = [] 
+
+    for columna in dataframe.select_dtypes(include=[np.number]).columns:
+        if columna != target_col:  
+            corr, p = pearsonr(dataframe[columna].dropna(), dataframe[target_col].dropna())
+            if abs(corr) >= umbral_corr and (pvalue is None or p <= pvalue):
+                correlaciones.append(columna)
+
+    return correlaciones 
+
+#3. Funcion: plot_features_num_regression
+def plot_features_num_regression(dataframe, target_col, columns=[], umbral_corr=0, pvalue=None):
+    """
+    Generar pairplot de columnas numéricas correlacionadas con la variable objetivo.
+    Parámetros:
+    - dataframe: DataFrame de entrada.
+    - target_col: Nombre de la columna objetivo.
+    - columns: Lista de columnas a evaluar (opcional).
+    - umbral_corr: Umbral mínimo de correlación en valor absoluto (por defecto 0).
+    - pvalue: Valor p para pruebas de hipótesis (opcional).
+
+    Devuelve:
+    - Lista de columnas numéricas seleccionadas para el gráfico.
+    """
+    if not columns:
+        columns = dataframe.select_dtypes(include=[np.number]).columns.tolist()
+
+    columnas_validas = get_features_num_regression(dataframe, target_col, umbral_corr, pvalue)
+
+    columnas_a_graficar = [col for col in columns if col in columnas_validas]
+
+    if len(columnas_a_graficar) > 5:
+        for i in range(0, len(columnas_a_graficar), 5):
+            sns.pairplot(dataframe, vars=[target_col] + columnas_a_graficar[i:i + 5])
+            plt.show() 
+    else:
+        sns.pairplot(dataframe, vars=[target_col] + columnas_a_graficar)
+        plt.show()  
+
+    return columnas_a_graficar
 
 
 #4. Funcion: get_features_cat_regression
