@@ -1,11 +1,53 @@
-
 #Carga de paquetes y módulos necesarios
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import f_oneway, spearmanr
 
-#1. Funcion: get_features_cat_regression
+# Función describe_df
+def describe_df(df):
+    """
+    Genera un resumen descriptivo de un DataFrame.
+    """
+    summary = {
+        "type": df.dtypes,
+        "null_percentage": df.isnull().mean() * 100,
+        "unique_values": df.nunique(),
+        "cardinality_percentage": (df.nunique() / len(df)) * 100
+    }
+    return pd.DataFrame(summary)
+
+# Función tipifica_variables
+def tipifica_variables(df, umbral_categoria, umbral_continua):
+    """
+    Clasifica las columnas de un DataFrame según su tipo sugerido.
+    """
+    unique_counts = df.nunique()
+    cardinality_percentage = (unique_counts / len(df)) * 100
+
+    resultados = []
+    for col in df.columns:
+        cardinalidad = unique_counts[col]
+        porcentaje_cardinalidad = cardinality_percentage[col]
+        if cardinalidad == 2:
+            tipo_sugerido = "Binaria"
+        elif cardinalidad < umbral_categoria:
+            tipo_sugerido = "Categórica"
+        else:
+            if porcentaje_cardinalidad >= umbral_continua:
+                tipo_sugerido = "Numerica Continua"
+            else:
+                tipo_sugerido = "Numerica Discreta"
+        resultados.append({"nombre_variable": col, "tipo_sugerido": tipo_sugerido})
+    return pd.DataFrame(resultados)
+
+
+***
+
+
+
+
+#4. Funcion: get_features_cat_regression
 
 def get_features_cat_regression(df, target_col, pvalue):
 
@@ -73,7 +115,7 @@ def get_features_cat_regression(df, target_col, pvalue):
 
     return significant_features
 
-#2. Funcion: plot_features_cat_regression
+#5. Funcion: plot_features_cat_regression
 
 def plot_features_cat_regression(df, target_col="", columns=[], pvalue=0.05, with_individual_plot=False):
     """
